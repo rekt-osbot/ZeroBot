@@ -61,6 +61,4 @@ Before running ZeroBot:
 
 [MIT License](LICENSE)
 
----
 
-Let me know if you want help writing the README in markdown format, setting up a sample strategy, or creating visual dashboards!
