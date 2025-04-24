@@ -50,5 +50,4 @@ class Config:
         
         return True
 
-# Create a singleton instance
 config = Config()
