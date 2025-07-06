@@ -2,3 +2,6 @@ __pycache__/
 venv/
 data_cache/
 logs/
+codebase.md
+uv.lock
+.aidigestignore

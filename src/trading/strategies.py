@@ -231,11 +231,15 @@ class SupertrendStrategy(Strategy):
         return signals
 
 
+# Import ChartInk strategies
+from .chartink_strategies import CHARTINK_STRATEGIES
+
 # Dictionary of available strategies
 STRATEGIES = {
     'ma_crossover': MovingAverageCrossover,
     'rsi': RSIStrategy,
     'macd': MACDStrategy,
     'bollinger': BollingerBandsStrategy,
-    'supertrend': SupertrendStrategy
+    'supertrend': SupertrendStrategy,
+    **CHARTINK_STRATEGIES  # Add ChartInk strategies
 }
