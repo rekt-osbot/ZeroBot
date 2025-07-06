@@ -50,7 +50,7 @@ class MovingAverageCrossover(Strategy):
         
         # Create signals
         signals['signal'] = 0.0
-        signals['signal'][self.short_window:] = np.where(
+        signals.loc[self.short_window:, 'signal'] = np.where(
             signals['short_ma'][self.short_window:] > signals['long_ma'][self.short_window:], 1.0, 0.0
         )
         

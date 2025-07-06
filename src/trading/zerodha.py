@@ -5,29 +5,37 @@ import logging
 import pandas as pd
 import random
 import datetime
+import numpy as np
 from kiteconnect import KiteConnect
 from src.utils.config import config
+from src.data.providers import get_data_provider
+from src.simulation.engine import get_simulation_engine
 
 logger = logging.getLogger(__name__)
 
 class ZerodhaConnector:
     """Connector class for Zerodha KiteConnect API"""
-    
+
     def __init__(self):
         """Initialize the Zerodha connector"""
         self.api_key = config.api_key
         self.api_secret = config.api_secret
         self.redirect_url = config.redirect_url
         self.demo_mode = not self.api_key or self.api_key == "your_api_key_here"
-        
+
         if not self.demo_mode:
             self.kite = KiteConnect(api_key=self.api_key)
         else:
             self.kite = None
             logger.info("Running in demo mode (no API key provided)")
-            
+
         self.access_token = None
         self.authenticated = self.demo_mode  # Auto-authenticate in demo mode
+
+        # Initialize data provider and simulation engine for demo mode
+        if self.demo_mode:
+            self.data_provider = get_data_provider(simulation_mode=True)
+            self.simulation_engine = get_simulation_engine()
     
     def get_login_url(self):
         """Get the login URL for Zerodha authentication"""
@@ -125,49 +133,8 @@ class ZerodhaConnector:
     def get_instruments(self, exchange=None):
         """Get list of tradable instruments"""
         if self.demo_mode:
-            # Return demo instruments
-            instruments = []
-            
-            if exchange in [None, "NSE"]:
-                # Add some NSE instruments
-                nse_symbols = ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK", 
-                              "SBIN", "BHARTIARTL", "ITC", "HINDUNILVR", "KOTAKBANK"]
-                for i, symbol in enumerate(nse_symbols):
-                    instruments.append({
-                        "instrument_token": 100000 + i,
-                        "exchange_token": 10000 + i,
-                        "tradingsymbol": symbol,
-                        "name": f"{symbol} Demo",
-                        "last_price": random.uniform(500, 3000),
-                        "expiry": "",
-                        "strike": 0,
-                        "tick_size": 0.05,
-                        "lot_size": 1,
-                        "instrument_type": "EQ",
-                        "segment": "NSE",
-                        "exchange": "NSE"
-                    })
-            
-            if exchange in [None, "BSE"]:
-                # Add some BSE instruments
-                bse_symbols = ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK"]
-                for i, symbol in enumerate(bse_symbols):
-                    instruments.append({
-                        "instrument_token": 200000 + i,
-                        "exchange_token": 20000 + i,
-                        "tradingsymbol": symbol,
-                        "name": f"{symbol} Demo",
-                        "last_price": random.uniform(500, 3000),
-                        "expiry": "",
-                        "strike": 0,
-                        "tick_size": 0.05,
-                        "lot_size": 1,
-                        "instrument_type": "EQ",
-                        "segment": "BSE",
-                        "exchange": "BSE"
-                    })
-            
-            return pd.DataFrame(instruments)
+            # Use real data provider for instruments
+            return self.data_provider.get_instruments(exchange)
         
         try:
             instruments = self.kite.instruments(exchange=exchange)
@@ -183,77 +150,22 @@ class ZerodhaConnector:
             return pd.DataFrame()
         
         if self.demo_mode:
-            # Generate demo historical data
-            start_date = from_date
-            end_date = to_date
-            
-            if isinstance(start_date, str):
-                start_date = datetime.datetime.strptime(start_date, "%Y-%m-%d")
-            if isinstance(end_date, str):
-                end_date = datetime.datetime.strptime(end_date, "%Y-%m-%d")
-            
-            # Determine time delta based on interval
-            if interval == "minute":
-                delta = datetime.timedelta(minutes=1)
-            elif interval == "3minute":
-                delta = datetime.timedelta(minutes=3)
-            elif interval == "5minute":
-                delta = datetime.timedelta(minutes=5)
-            elif interval == "10minute":
-                delta = datetime.timedelta(minutes=10)
-            elif interval == "15minute":
-                delta = datetime.timedelta(minutes=15)
-            elif interval == "30minute":
-                delta = datetime.timedelta(minutes=30)
-            elif interval == "60minute":
-                delta = datetime.timedelta(hours=1)
-            else:  # day
-                delta = datetime.timedelta(days=1)
-            
-            # Generate dates
-            dates = []
-            current_date = start_date
-            while current_date <= end_date:
-                # Only include weekdays and trading hours
-                if current_date.weekday() < 5:  # Monday to Friday
-                    if interval == "day" or (9 <= current_date.hour < 16):
-                        dates.append(current_date)
-                current_date += delta
-            
-            # Generate random price data
-            base_price = 1000.0
-            price_data = []
-            
-            for i, date in enumerate(dates):
-                # Create a random walk
-                if i == 0:
-                    open_price = base_price
-                else:
-                    open_price = price_data[-1]["close"]
-                
-                # Random price movements
-                price_change = random.uniform(-20, 20)
-                close_price = max(0.1, open_price + price_change)
-                high_price = max(open_price, close_price) + random.uniform(0, 10)
-                low_price = min(open_price, close_price) - random.uniform(0, 10)
-                
-                # Ensure low <= open, close <= high
-                low_price = max(0.1, min(low_price, open_price, close_price))
-                high_price = max(high_price, open_price, close_price)
-                
-                # Volume
-                volume = int(random.uniform(10000, 1000000))
-                
-                price_data.append({
-                    "date": date,
-                    "open": open_price,
-                    "high": high_price,
-                    "low": low_price,
-                    "close": close_price,
-                    "volume": volume
-                })
-            
-            return pd.DataFrame(price_data)
+            # Convert instrument_token to symbol (simplified mapping)
+            symbol_map = {
+                100000: "RELIANCE", 100001: "TCS", 100002: "INFY", 100003: "HDFCBANK",
+                100004: "ICICIBANK", 100005: "SBIN", 100006: "BHARTIARTL",
+                100007: "ITC", 100008: "HINDUNILVR", 100009: "KOTAKBANK"
+            }
+
+            symbol = symbol_map.get(instrument_token, "RELIANCE")
+
+            # Use real data provider
+            return self.data_provider.get_historical_data(
+                symbol=symbol,
+                start_date=from_date.strftime("%Y-%m-%d") if isinstance(from_date, datetime.datetime) else from_date,
+                end_date=to_date.strftime("%Y-%m-%d") if isinstance(to_date, datetime.datetime) else to_date,
+                interval="1d"  # Simplify to daily data for now
+            )
         
         try:
             data = self.kite.historical_data(
@@ -273,12 +185,17 @@ class ZerodhaConnector:
         if not self.authenticated:
             logger.error("Not authenticated with Zerodha")
             return None
-        
+
         if self.demo_mode:
-            # Generate a random order ID
-            order_id = f"demo_{random.randint(100000, 999999)}"
-            logger.info(f"Demo mode: Placed order {order_id} for {symbol} on {exchange}")
-            return order_id
+            # Use simulation engine to place order
+            return self.simulation_engine.place_order(
+                symbol=symbol,
+                exchange=exchange,
+                transaction_type=transaction_type,
+                quantity=quantity,
+                price=price,
+                order_type=order_type
+            )
         
         try:
             order_params = {
@@ -420,45 +337,8 @@ class ZerodhaConnector:
             return {"net": pd.DataFrame(), "day": pd.DataFrame()}
         
         if self.demo_mode:
-            # Generate demo positions
-            positions = []
-            
-            # Generate a few random positions
-            symbols = ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK"]
-            for i in range(3):
-                symbol = symbols[i]
-                quantity = random.randint(1, 20)
-                buy_price = random.uniform(500, 3000)
-                current_price = buy_price * random.uniform(0.9, 1.1)
-                
-                positions.append({
-                    "tradingsymbol": symbol,
-                    "exchange": "NSE",
-                    "instrument_token": 100000 + i,
-                    "product": "MIS",
-                    "quantity": quantity,
-                    "overnight_quantity": 0,
-                    "multiplier": 1,
-                    "average_price": buy_price,
-                    "close_price": 0,
-                    "last_price": current_price,
-                    "value": quantity * current_price,
-                    "pnl": quantity * (current_price - buy_price),
-                    "m2m": quantity * (current_price - buy_price),
-                    "unrealised": quantity * (current_price - buy_price),
-                    "realised": 0,
-                    "buy_quantity": quantity,
-                    "buy_price": buy_price,
-                    "buy_value": quantity * buy_price,
-                    "sell_quantity": 0,
-                    "sell_price": 0,
-                    "sell_value": 0
-                })
-            
-            return {
-                "net": pd.DataFrame(positions),
-                "day": pd.DataFrame(positions)
-            }
+            # Use simulation engine to get positions
+            return self.simulation_engine.get_positions()
         
         try:
             positions = self.kite.positions()

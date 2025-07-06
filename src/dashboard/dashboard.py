@@ -18,6 +18,9 @@ from src.dashboard.pages.strategies import create_strategies_layout, register_st
 from src.dashboard.pages.analytics import create_analytics_layout, register_analytics_callbacks
 from src.dashboard.pages.settings import create_settings_layout, register_settings_callbacks
 
+# Import simulation engine
+from src.simulation.engine import get_simulation_engine
+
 logger = logging.getLogger(__name__)
 
 def create_dashboard(trade_bot):
@@ -596,27 +599,27 @@ def create_dashboard(trade_bot):
         Input('interval-component', 'n_intervals')
     )
     def update_active_trades_table(n):
-        # Get active trades
-        active_trades = trade_bot.get_active_trades()
-        
-        if not active_trades:
+        # Get active trades from simulation engine
+        simulation_engine = get_simulation_engine()
+        positions = simulation_engine.get_positions()
+
+        if positions['day'].empty:
             return html.P("No active trades", className='text-center text-muted my-3')
-        
+
         # Create table rows
         rows = []
-        for order_id, trade in active_trades.items():
-            instrument = trade['instrument']
-            symbol = instrument['tradingsymbol']
-            exchange = instrument['exchange']
-            quantity = trade['quantity']
-            buy_price = trade['buy_price']
-            current_price = buy_price * (1 + np.random.uniform(-0.05, 0.05))  # Simulate price change
-            pnl = (current_price - buy_price) * quantity
-            pnl_percent = (pnl / (buy_price * quantity)) * 100
-            
+        for _, position in positions['day'].iterrows():
+            symbol = position['tradingsymbol']
+            exchange = position['exchange']
+            quantity = position['quantity']
+            buy_price = position['average_price']
+            current_price = position['last_price']
+            pnl = position['pnl']
+            pnl_percent = (pnl / (buy_price * quantity)) * 100 if buy_price * quantity > 0 else 0
+
             # Determine class for styling
             pnl_class = 'text-success' if pnl >= 0 else 'text-danger'
-            
+
             # Create row
             row = html.Tr([
                 html.Td(f"{exchange}:{symbol}"),
@@ -626,10 +629,10 @@ def create_dashboard(trade_bot):
                 html.Td(f"₹{pnl:.2f}", className=pnl_class),
                 html.Td(f"{pnl_percent:.2f}%", className=pnl_class),
                 html.Td(
-                    dbc.Button("Close", color="danger", size="sm", id={'type': 'close-trade-button', 'index': order_id})
+                    dbc.Button("Close", color="danger", size="sm", id={'type': 'close-trade-button', 'index': f"{exchange}:{symbol}"})
                 )
             ])
-            
+
             rows.append(row)
         
         # Create table

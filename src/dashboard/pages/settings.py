@@ -275,6 +275,21 @@ def create_settings_layout(trade_bot):
                         dbc.Card([
                             dbc.CardHeader("Zerodha API Credentials"),
                             dbc.CardBody([
+                                dbc.Alert([
+                                    html.H6("⚠️ Security Warning", className="alert-heading"),
+                                    html.P([
+                                        "For security reasons, it's recommended to set API credentials using environment variables in a ",
+                                        html.Code(".env"), " file instead of entering them here. ",
+                                        "This form is provided for testing purposes only."
+                                    ]),
+                                    html.P([
+                                        "To use environment variables, create a ", html.Code(".env"), " file in your project root with:",
+                                        html.Br(),
+                                        html.Code("API_KEY=your_api_key_here"),
+                                        html.Br(),
+                                        html.Code("API_SECRET=your_api_secret_here")
+                                    ])
+                                ], color="warning", className="mb-3"),
                                 dbc.Form([
                                     dbc.Row([
                                         dbc.Col([

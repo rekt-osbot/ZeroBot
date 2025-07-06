@@ -9,6 +9,7 @@ import plotly.express as px
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
+from src.backtesting.engine import get_backtest_engine
 
 def create_strategies_layout(trade_bot):
     """Create the strategies page layout"""
@@ -420,64 +421,94 @@ def register_strategies_callbacks(app, trade_bot):
                     }]
                 }
             }
-            
+
             empty_results = html.P("No backtest results yet. Click 'Run Backtest' to begin.", className="text-muted")
-            
+
             return empty_fig, empty_results
-        
-        # Generate sample backtest data
-        dates = pd.date_range(start=start_date, end=end_date, freq='D')
-        
-        # Generate price data
-        np.random.seed(42)  # For reproducibility
-        base_price = 1000
-        prices = [base_price]
-        for i in range(1, len(dates)):
-            change = np.random.normal(0, 20)
-            prices.append(max(prices[-1] + change, 1))  # Ensure price is positive
-        
-        # Generate signals
-        signals = np.zeros(len(dates))
-        for i in range(10, len(dates), 20):
-            if i + 10 < len(dates):
-                signals[i] = 1  # Buy signal
-                signals[i + 10] = -1  # Sell signal
-        
-        # Create figure
-        fig = go.Figure()
-        
-        # Add price line
-        fig.add_trace(go.Scatter(
-            x=dates,
-            y=prices,
-            mode='lines',
-            name='Price',
-            line={'width': 2, 'color': '#FFFFFF'}
-        ))
-        
-        # Add buy signals
-        buy_dates = [dates[i] for i in range(len(signals)) if signals[i] == 1]
-        buy_prices = [prices[i] for i in range(len(signals)) if signals[i] == 1]
-        
-        fig.add_trace(go.Scatter(
-            x=buy_dates,
-            y=buy_prices,
-            mode='markers',
-            name='Buy Signal',
-            marker={'size': 10, 'color': '#00FF00', 'symbol': 'triangle-up'}
-        ))
-        
-        # Add sell signals
-        sell_dates = [dates[i] for i in range(len(signals)) if signals[i] == -1]
-        sell_prices = [prices[i] for i in range(len(signals)) if signals[i] == -1]
-        
-        fig.add_trace(go.Scatter(
-            x=sell_dates,
-            y=sell_prices,
-            mode='markers',
-            name='Sell Signal',
-            marker={'size': 10, 'color': '#FF0000', 'symbol': 'triangle-down'}
-        ))
+
+        try:
+            # Run real backtest
+            backtest_engine = get_backtest_engine()
+            results = backtest_engine.run_backtest(
+                strategy_name=strategy,
+                symbol=symbol,
+                start_date=start_date,
+                end_date=end_date
+            )
+
+            # Create equity curve chart
+            fig = go.Figure()
+
+            if not results.equity_curve.empty:
+                dates = pd.to_datetime(results.equity_curve['date'])
+                portfolio_values = results.equity_curve['portfolio_value']
+
+                # Add portfolio value line
+                fig.add_trace(go.Scatter(
+                    x=dates,
+                    y=portfolio_values,
+                    mode='lines',
+                    name='Portfolio Value',
+                    line={'width': 2, 'color': '#00FF00'}
+                ))
+
+                # Add trade markers
+                buy_trades = [t for t in results.trades if t.trade_type == 'BUY']
+                sell_trades = [t for t in results.trades if t.trade_type == 'SELL' and t.exit_date]
+
+                if buy_trades:
+                    buy_dates = [t.entry_date for t in buy_trades]
+                    buy_values = [results.initial_capital] * len(buy_dates)  # Simplified
+
+                    fig.add_trace(go.Scatter(
+                        x=buy_dates,
+                        y=buy_values,
+                        mode='markers',
+                        name='Buy Signal',
+                        marker={'size': 10, 'color': '#00FF00', 'symbol': 'triangle-up'}
+                    ))
+
+                if sell_trades:
+                    sell_dates = [t.exit_date for t in sell_trades]
+                    sell_values = [results.initial_capital] * len(sell_dates)  # Simplified
+
+                    fig.add_trace(go.Scatter(
+                        x=sell_dates,
+                        y=sell_values,
+                        mode='markers',
+                        name='Sell Signal',
+                        marker={'size': 10, 'color': '#FF0000', 'symbol': 'triangle-down'}
+                    ))
+            else:
+                # Empty chart for failed backtest
+                fig.add_annotation(
+                    text="No data available for backtest",
+                    xref="paper", yref="paper",
+                    x=0.5, y=0.5, showarrow=False,
+                    font={'size': 20, 'color': 'white'}
+                )
+
+        except Exception as e:
+            # Handle errors gracefully
+            fig = go.Figure()
+            fig.add_annotation(
+                text=f"Backtest failed: {str(e)}",
+                xref="paper", yref="paper",
+                x=0.5, y=0.5, showarrow=False,
+                font={'size': 16, 'color': 'red'}
+            )
+
+            # Create empty results
+            results = type('obj', (object,), {
+                'total_trades': 0,
+                'winning_trades': 0,
+                'losing_trades': 0,
+                'win_rate': 0,
+                'total_return': 0,
+                'total_return_percent': 0,
+                'avg_profit': 0,
+                'avg_loss': 0
+            })()
         
         # Update layout
         fig.update_layout(
@@ -508,59 +539,48 @@ def register_strategies_callbacks(app, trade_bot):
             }
         )
         
-        # Generate backtest results
-        total_trades = len(buy_dates)
-        winning_trades = int(total_trades * 0.7)  # 70% win rate
-        losing_trades = total_trades - winning_trades
-        
-        avg_profit = 50  # ₹50 per winning trade
-        avg_loss = 30  # ₹30 per losing trade
-        
-        total_profit = winning_trades * avg_profit
-        total_loss = losing_trades * avg_loss
-        net_profit = total_profit - total_loss
-        
-        roi = (net_profit / base_price) * 100
-        
-        # Create results table
-        results = html.Div([
+        # Create results table using real backtest results
+        results_div = html.Div([
             dbc.Row([
                 dbc.Col([
                     html.H6("Total Trades"),
-                    html.H4(f"{total_trades}")
+                    html.H4(f"{results.total_trades}")
                 ], width=3),
                 dbc.Col([
                     html.H6("Win Rate"),
-                    html.H4(f"{(winning_trades / total_trades * 100):.1f}%", className="text-success")
+                    html.H4(f"{results.win_rate:.1f}%",
+                           className="text-success" if results.win_rate > 50 else "text-danger")
                 ], width=3),
                 dbc.Col([
                     html.H6("Net Profit"),
-                    html.H4(f"₹{net_profit:,.2f}", className="text-success")
+                    html.H4(f"₹{results.total_return:,.2f}",
+                           className="text-success" if results.total_return > 0 else "text-danger")
                 ], width=3),
                 dbc.Col([
                     html.H6("ROI"),
-                    html.H4(f"{roi:.2f}%", className="text-success")
+                    html.H4(f"{results.total_return_percent:.2f}%",
+                           className="text-success" if results.total_return_percent > 0 else "text-danger")
                 ], width=3)
             ]),
             html.Hr(),
             dbc.Row([
                 dbc.Col([
                     html.H6("Winning Trades"),
-                    html.H4(f"{winning_trades}")
+                    html.H4(f"{results.winning_trades}")
                 ], width=3),
                 dbc.Col([
                     html.H6("Losing Trades"),
-                    html.H4(f"{losing_trades}")
+                    html.H4(f"{results.losing_trades}")
                 ], width=3),
                 dbc.Col([
                     html.H6("Avg. Profit"),
-                    html.H4(f"₹{avg_profit:,.2f}")
+                    html.H4(f"₹{results.avg_profit:,.2f}")
                 ], width=3),
                 dbc.Col([
                     html.H6("Avg. Loss"),
-                    html.H4(f"₹{avg_loss:,.2f}")
+                    html.H4(f"₹{abs(results.avg_loss):,.2f}")
                 ], width=3)
             ])
         ])
-        
-        return fig, results
+
+        return fig, results_div
